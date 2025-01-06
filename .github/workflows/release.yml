@@ -26,18 +26,22 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
     strategy:
       matrix:
         client: [android, java, ios]
+        os: [ubuntu-latest, macos-latest]
         include:
           - client: android
+            os: ubuntu-latest
             path: demo_src/TCP_Client/MobileIMSDK4aDemo_tcp
           - client: java
+            os: ubuntu-latest
             path: demo_src/TCP_Client/MobileIMSDK4jDemo_tcp
           - client: ios
+            os: macos-latest
             path: demo_src/TCP_Client/MobileIMSDK4iDemo_tcp
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       # Step 1: 检出代码
@@ -53,7 +57,7 @@ jobs:
             exit 0
           fi
 
-      # Step 3: 设置 JDK（适用于 Android 和 Java 客户端）
+      # Step 3: 设置环境（JDK 或 Xcode）
       - name: Set up JDK
         if: matrix.client == 'android' || matrix.client == 'java'
         uses: actions/setup-java@v3
@@ -61,27 +65,25 @@ jobs:
           distribution: 'temurin'
           java-version: 11
 
-      # Step 4: 设置 Xcode（适用于 iOS 客户端）
       - name: Set up Xcode
         if: matrix.client == 'ios'
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      # Step 5: 构建客户端（确保权限）
-      - name: Build client
+      # Step 4: 构建客户端
+      - name: Build Client
         run: |
           cd ${{ matrix.path }}
           if [ "${{ matrix.client }}" == "android" ]; then
-            chmod +x gradlew # 确保 gradlew 可执行
+            chmod +x gradlew
             ./gradlew clean assembleRelease
           elif [ "${{ matrix.client }}" == "java" ]; then
             mkdir -p out
-            javac -d out src/**/*.java
+            javac -d out -cp "lib/*" src/**/*.java
           elif [ "${{ matrix.client }}" == "ios" ]; then
-            chmod +x *.sh # 如果有 Shell 脚本，确保可执行
-            xcodebuild -scheme MobileIMSDK4iDemo_tcp -configuration Release
+            xcodebuild -project MobileIMSDK4iDemo.xcodeproj -scheme MobileIMSDK4iDemo -configuration Release
           fi
 
-      # Step 6: 打包构建结果
+      # Step 5: 打包构建结果
       - name: Package Artifacts
         run: |
           mkdir -p artifacts
@@ -93,7 +95,7 @@ jobs:
             zip -r artifacts/MobileIMSDK4iDemo_tcp.zip ${{ matrix.path }}/build/Release-iphoneos
           fi
 
-      # Step 7: 上传到 Release
+      # Step 6: 上传到 Release
       - name: Upload to GitHub Releases
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-release-asset@v1
