@@ -29,7 +29,9 @@ jobs:
     strategy:
       matrix:
         client: [android, java, ios]
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest
+          - macos-latest
         include:
           - client: android
             os: ubuntu-latest
@@ -74,14 +76,18 @@ jobs:
         run: |
           cd ${{ matrix.path }}
           if [ "${{ matrix.client }}" == "android" ]; then
+            echo "Starting Gradle build..."
             chmod +x gradlew
-            ./gradlew clean assembleRelease
+            ./gradlew clean assembleRelease --no-daemon
           elif [ "${{ matrix.client }}" == "java" ]; then
             mkdir -p out
             javac -d out -cp "lib/*" src/**/*.java
           elif [ "${{ matrix.client }}" == "ios" ]; then
             xcodebuild -project MobileIMSDK4iDemo.xcodeproj -scheme MobileIMSDK4iDemo -configuration Release
           fi
+        env:
+          ANDROID_HOME: ${{ secrets.ANDROID_HOME }}
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
       # Step 5: 打包构建结果
       - name: Package Artifacts
