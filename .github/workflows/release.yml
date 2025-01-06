@@ -1,69 +1,125 @@
 name: Build and Release Clients
 
 on:
-  push:
-    branches:
-      - main
-  release:
-    types: [created]
+  # 1. 手动触发
   workflow_dispatch:
+    inputs:
+      client:
+        description: 'Select the client to build (android, java, ios, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - android
+          - java
+          - ios
+          - all
+      tag:
+        description: 'Release tag (only for releases)'
+        required: false
+        default: 'v1.0.0'
+        type: string
+
+  # 2. 当推送到某分支时触发（仅对 .github/workflows 和 demo_src/TCP_Client 修改时运行）
+  push:
+    paths:
+      - '.github/workflows/**'
+      - 'demo_src/TCP_Client/**' # 监控工作目录下的文件更改
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        client: [android, java, ios]
+        include:
+          - client: android
+            path: demo_src/TCP_Client/MobileIMSDK4aDemo_tcp
+          - client: java
+            path: demo_src/TCP_Client/MobileIMSDK4jDemo_tcp
+          - client: ios
+            path: demo_src/TCP_Client/MobileIMSDK4iDemo_tcp
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # Step 1: 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up JDK
-      uses: actions/setup-java@v3
-      with:
-        java-version: '17'
+      # Step 2: 条件判断 - 手动触发时选择客户端
+      - name: Check client type
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "Selected client: ${{ github.event.inputs.client }}"
+          if [ "${{ github.event.inputs.client }}" != "all" ] && [ "${{ github.event.inputs.client }}" != "${{ matrix.client }}" ]; then
+            exit 0
+          fi
 
-    - name: Build Android Client
-      run: |
-        cd demo_src/TCP_Client/MobileIMSDK4aDemo_tcp
-        ./gradlew build
+      # Step 3: 设置 JDK（适用于 Android 和 Java 客户端）
+      - name: Set up JDK
+        if: matrix.client == 'android' || matrix.client == 'java'
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: 11
 
-    - name: Build Java Client
-      run: |
-        cd demo_src/TCP_Client/MobileIMSDK4jDemo_tcp
-        ./gradlew build
+      # Step 4: 设置 Xcode（适用于 iOS 客户端）
+      - name: Set up Xcode
+        if: matrix.client == 'ios'
+        run: sudo xcode-select -s /Applications/Xcode.app
 
-    - name: Build iOS Client
-      run: |
-        cd demo_src/TCP_Client/MobileIMSDK4iDemo_tcp
-        xcodebuild -scheme MobileIMSDK4iDemo_tcp -sdk iphoneos
+      # Step 5: 构建客户端
+      - name: Build client
+        run: |
+          cd ${{ matrix.path }}
+          if [ "${{ matrix.client }}" == "android" ]; then
+            ./gradlew clean assembleRelease
+          elif [ "${{ matrix.client }}" == "java" ]; then
+            mkdir -p out
+            javac -d out src/**/*.java
+          elif [ "${{ matrix.client }}" == "ios" ]; then
+            xcodebuild -scheme MobileIMSDK4iDemo_tcp -configuration Release
+          fi
 
-    - name: Upload Release Assets
-      uses: actions/upload-artifact@v3
-      with:
-        name: TCP_Client_Builds
-        path: |
-          demo_src/TCP_Client/MobileIMSDK4aDemo_tcp/build/outputs/**/*.apk
-          demo_src/TCP_Client/MobileIMSDK4jDemo_tcp/build/libs/*.jar
-          demo_src/TCP_Client/MobileIMSDK4iDemo_tcp/build/Release-iphoneos/*.app
+      # Step 6: 打包构建结果
+      - name: Package Artifacts
+        run: |
+          mkdir -p artifacts
+          if [ "${{ matrix.client }}" == "android" ]; then
+            cp ${{ matrix.path }}/app/build/outputs/apk/release/*.apk artifacts/
+          elif [ "${{ matrix.client }}" == "java" ]; then
+            zip -r artifacts/MobileIMSDK4jDemo_tcp.zip ${{ matrix.path }}/out
+          elif [ "${{ matrix.client }}" == "ios" ]; then
+            zip -r artifacts/MobileIMSDK4iDemo_tcp.zip ${{ matrix.path }}/build/Release-iphoneos
+          fi
+
+      # Step 7: 上传到 Release
+      - name: Upload to GitHub Releases
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/
+          asset_name: ${{ matrix.client }}-client.zip
+          asset_content_type: application/zip
 
   release:
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-    - name: Download Release Assets
-      uses: actions/download-artifact@v3
-      with:
-        name: TCP_Client_Builds
-        path: release-assets
-
-    - name: Create GitHub Release
-      uses: actions/create-release@v3
-      with:
-        tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
-        body: |
-          Release of TCP Clients
-        draft: false
-        prerelease: false
-        files: |
-          release-assets/**/*
+      - name: Create GitHub Release
+        id: create_release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            This release includes the following:
+            - Android Client
+            - Java Client
+            - iOS Client
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
