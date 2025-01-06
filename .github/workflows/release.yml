@@ -29,9 +29,7 @@ jobs:
     strategy:
       matrix:
         client: [android, java, ios]
-        os:
-          - ubuntu-latest
-          - macos-latest
+
         include:
           - client: android
             os: ubuntu-latest
@@ -87,7 +85,7 @@ jobs:
           fi
         env:
           ANDROID_HOME: ${{ secrets.ANDROID_HOME }}
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false -Xmx2g -XX:MaxPermSize=512m"
 
       # Step 5: 打包构建结果
       - name: Package Artifacts
